@@ -40,3 +40,10 @@ hdaは使用する仮想ディスクのことだろう。
 
 OVMFの出処はここかな、と推測。  
 https://www.tianocore.org/  
+
+## Ansible
+IaC(Infrastructure as Code)を実現するための構成管理ツール。  
+[Qiitaに分かりやすい解説記事](https://qiita.com/comefigo/items/d749001da5637e09cb1b)があった。  
+ansible_inventryにホストの情報を残しておき、  
+ansible_provisionにて各タスクを実行してaptなどを実行していく。    
+細かくは追わないことにするが、自前のLinux環境を整備したい時はこういうの使ったほうがいいのかなー。  
