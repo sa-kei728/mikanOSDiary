@@ -216,3 +216,38 @@ RIP=0000000000101011
 0x0000000000101010:  hlt    
 0x0000000000101011:  jmp    0x101010
 ```
+
+## BootLoaderでピクセルを書く
+UEFIにはGOP(Graphics Output Protocol)という機能でピクセル単位での描画をするための情報取得が可能。  
+書き込むための情報としては、  
+- FrameBufferの先頭アドレス(FrameBufferとはディスプレイ描画用に確保されているバッファのこと)
+- FrameBufferの解像度
+- FrameBufferの非表示領域幅。
+- 1 Pixelのデータ量。8bitなら256階調, RGBにして1677万色の表現が可能。
+
+GOPの処理は下記で実施。
+```
+  // GOPで情報取得
+  EFI_GRAPHICS_OUTPUT_PROTOCOL* gop;
+  OpenGOP(image_handle, &gop);
+  Print(L"Resolution: %ux%u, Pixel Format: %s, %u pixels/line\n",
+      gop->Mode->Info->HorizontalResolution,
+      gop->Mode->Info->VerticalResolution,
+      GetPixelFormatUnicode(gop->Mode->Info->PixelFormat),
+      gop->Mode->Info->PixelsPerScanLine);
+  Print(L"Frame Buffer: 0x%0lx - 0x%0lx, Size: %lu bytes\n",
+      gop->Mode->FrameBufferBase,
+      gop->Mode->FrameBufferBase + gop->Mode->FrameBufferSize,
+      gop->Mode->FrameBufferSize);
+
+  // framebufferの先頭アドレスを取得し、FrameBufferSize文だけ255で埋める。
+  // (白一色になる。)
+  UINT8* frame_buffer = (UINT8*)gop->Mode->FrameBufferBase;
+  for (UINTN i = 0; i < gop->Mode->FrameBufferSize; ++i) {
+    frame_buffer[i] = 255;
+  }
+```
+
+QEMUの実際の画面がこちら。見事に真っ白である。  
+(白一色にしてからkernel呼び出し系を動かしているので、その部分はFrameBufferを上書きする。)
+![qemu_boot_gop.png ](qemu_boot_gop.png)
