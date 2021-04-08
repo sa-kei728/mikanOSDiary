@@ -11,4 +11,5 @@ zero based selfmade os for beginner
 
 ## Diary(Japanese Only)
 [Day1](Diary/Day01/README.md)  
-[Day2](Diary/Day02/README.md)
+[Day2](Diary/Day02/README.md)  
+[Day3](Diary/Day03/README.md)  
