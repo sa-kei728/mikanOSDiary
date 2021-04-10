@@ -217,7 +217,7 @@ RIP=0000000000101011
 0x0000000000101011:  jmp    0x101010
 ```
 
-## BootLoaderでピクセルを書く
+## BootLoaderでピクセルを描く
 UEFIにはGOP(Graphics Output Protocol)という機能でピクセル単位での描画をするための情報取得が可能。  
 書き込むための情報としては、  
 - FrameBufferの先頭アドレス(FrameBufferとはディスプレイ描画用に確保されているバッファのこと)
@@ -251,3 +251,71 @@ GOPの処理は下記で実施。
 QEMUの実際の画面がこちら。見事に真っ白である。  
 (白一色にしてからkernel呼び出し系を動かしているので、その部分はFrameBufferを上書きする。)
 ![qemu_boot_gop.png ](qemu_boot_gop.png)
+
+## Kernelでピクセルを描く
+
+kernel側にframe_bufferの情報を渡して、kernel側でframe_bufferの情報を更新する。  
+0-255をずっと繰り返すような描画がされるようにしている。   
+```
+#include <cstdint>
+
+extern "C" void KernelMain(uint64_t frame_buffer_base,
+                           uint64_t frame_buffer_size) {
+  uint8_t* frame_buffer = reinterpret_cast<uint8_t*>(frame_buffer_base);
+  for (uint64_t i = 0; i < frame_buffer_size; ++i) {
+    frame_buffer[i] = i % 256;
+  }
+  while (1) __asm__("hlt");
+}
+```
+frame_buffer_baseはuint64_tだが、このアドレス値をuint8_t型のポインタとして扱いたいため、  
+C++におけるreinterpret_castを使ってキャストしている。  
+[reinterpret_cast](http://www7b.biglobe.ne.jp/~robe/cpphtml/html02/cpp02041.html)は通常のキャストでは危険なキャストになるポインタが絡むキャストをしたい場合に用いるキャスト。  
+普段から使うようなキャストではないので乱用注意。  
+
+なおcstdintは標準のINCLUDE_PATH上にはないのでビルド時に場所を教える必要がある。  
+書籍ではmikanos-buildの環境を指定しているが、自環境に合わせたかったのでfindコマンドで探して指定。  
+結果的には下記をつける必要があった。  
+```
+-I/usr/include/c++/7 -I/usr/include/x86_64-linux-gnu/ -I/usr/include/x86_64-linux-gnu/c++/7/ 
+```
+
+また、kernel側のInterfaceを変えていることになるので、bootloader側も引数を渡すように変更。  
+```
+  typedef void EntryPointType(UINT64, UINT64);
+  EntryPointType* entry_point = (EntryPointType*)entry_addr;
+  entry_point(gop->Mode->FrameBufferBase, gop->Mode->FrameBufferSize);
+```
+
+こうして出力されるピクセル更新結果がこれ。  
+ピクセルデータ形式が不明なのでどうなるかは不明だが、この感じだと8bit GrayScaleで出力されているようだ。
+![qemu_boot_kernel_frame.png](./qemu_boot_kernel_frame.png)
+
+## エラー処理
+今から作っているのはOSなので、  
+正常に動作しない場合には動き続けないようにプログラムを作っておかなければなりません。  
+(別にOSに限った話ではないけども…)  
+ここではEFI_STATUS型のstatus変数を生成しておき、例えば下記のようにしておく。  
+```
+void Halt(void) {
+  while (1) __asm__("hlt");
+}
+
+EFI_STATUS EFIAPI UefiMain(
+    EFI_HANDLE image_handle,
+    EFI_SYSTEM_TABLE* system_table) {
+  EFI_STATUS status;
+...
+  status = gBS->AllocatePages(
+      AllocateAddress, EfiLoaderData,
+      (kernel_file_size + 0xfff) / 0x1000, &kernel_base_addr);
+  if (EFI_ERROR(status)) {
+    Print(L"failed to allocate pages: %r", status);
+    Halt();
+  }
+...
+```
+AllocatePagesでメモリ確保しにいこうとするが、  
+失敗した際にはエラーメッセージを出して、Haltで無限ループさせる処理。  
+無限ループはエラーメッセージを残しておきたいため。  
+returnを使うと起動処理を続けようとする場合があるのでエラーが消えてしまう。  

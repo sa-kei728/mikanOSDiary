@@ -6,6 +6,7 @@ mkdir -p mnt
 sudo mount -o loop disk.img mnt
 sudo mkdir -p mnt/EFI/BOOT
 #sudo cp Loader.efi mnt/EFI/BOOT/BOOTX64.EFI
-sudo cp Loader_GOP.efi mnt/EFI/BOOT/BOOTX64.EFI
+#sudo cp Loader_GOP.efi mnt/EFI/BOOT/BOOTX64.EFI
+sudo cp Loader_kernelFrame.efi mnt/EFI/BOOT/BOOTX64.EFI
 sudo cp kernel/kernel.elf mnt/
 sudo umount mnt
