@@ -13,3 +13,4 @@ zero based selfmade os for beginner
 [Day1](Diary/Day01/README.md)  
 [Day2](Diary/Day02/README.md)  
 [Day3](Diary/Day03/README.md)  
+[Day4](Diary/Day04/README.md)  
