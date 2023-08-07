@@ -83,7 +83,7 @@ extern "C" void KernelMain() {
 コンパイルは下記によって実施。  
 ```console
 clang++ -O2 -Wall -g --target=x86_64-elf -ffreestanding -mno-red-zone \
--fno-exceptions -fno-rtti -std=c++17 -c main.cpp
+-fno-exceptions -fno-rtti -fshort-wchar -std=c++17 -c main.cpp
 ```
 |コンパイルオプション|意味|
 |---|---|
@@ -95,6 +95,7 @@ clang++ -O2 -Wall -g --target=x86_64-elf -ffreestanding -mno-red-zone \
 |-mno-red-zone|RedZone機能の無効化|
 |-fno-exceptions|C++例外を無効化|
 |-fno-rtti|C++の実行時型情報を使わない|
+|-fshort-wchar|wchar_tをunsigned shortとして2Byte定義する.([edk2-stable202208対応](https://github.com/uchan-nos/mikanos/commit/b5f7740c04002e67a95af16a5c6e073b664bf3f5))|
 |-std=c++17|c++17でコンパイル|
 |-c|コンパイルのみ実行|
 
@@ -180,7 +181,7 @@ sizeof(CHAR16) * 12を足しているのはこのため。
 ```
 
 その後、Kernelを呼び出す。
-```
+```c
   UINT64 entry_addr = *(UINT64*)(kernel_base_addr + 24);
 
   // EntryPointTypeという引数と戻り値がどちらもvoid型の関数を定義し、entry_addrを呼び出す。
@@ -190,7 +191,7 @@ sizeof(CHAR16) * 12を足しているのはこのため。
 ```
 Entry_Addressに関してはReadelfするとわかるエントリポイントアドレス情報が  
 offset 24に存在するため。
-```
+```console
 readelf -h kernel.elf 
 ELF ヘッダ:
   マジック:   7f 45 4c 46 02 01 01 00 00 00 00 00 00 00 00 00 
@@ -204,7 +205,7 @@ ELF ヘッダ:
 
 QEMUモニタでプログラムカウンタの値を確認し、実行している命令が何なのか見てみると、  
 hlt命令で止まっているのが見てわかる。kernel呼び出し成功。
-```
+```console
 (qemu) info registers
 ...
 RIP=0000000000101011
@@ -226,7 +227,7 @@ UEFIにはGOP(Graphics Output Protocol)という機能でピクセル単位で�
 - 1 Pixelのデータ量。8bitなら256階調, RGBにして1677万色の表現が可能。
 
 GOPの処理は下記で実施。
-```
+```c
   // GOPで情報取得
   EFI_GRAPHICS_OUTPUT_PROTOCOL* gop;
   OpenGOP(image_handle, &gop);
@@ -256,7 +257,7 @@ QEMUの実際の画面がこちら。見事に真っ白である。
 
 kernel側にframe_bufferの情報を渡して、kernel側でframe_bufferの情報を更新する。  
 0-255をずっと繰り返すような描画がされるようにしている。   
-```
+```c
 #include <cstdint>
 
 extern "C" void KernelMain(uint64_t frame_buffer_base,
@@ -276,12 +277,12 @@ C++におけるreinterpret_castを使ってキャストしている。
 なおcstdintは標準のINCLUDE_PATH上にはないのでビルド時に場所を教える必要がある。  
 書籍ではmikanos-buildの環境を指定しているが、自環境に合わせたかったのでfindコマンドで探して指定。  
 結果的には下記をつける必要があった。  
-```
+```console
 -I/usr/include/c++/7 -I/usr/include/x86_64-linux-gnu/ -I/usr/include/x86_64-linux-gnu/c++/7/ 
 ```
 
 また、kernel側のInterfaceを変えていることになるので、bootloader側も引数を渡すように変更。  
-```
+```c
   typedef void EntryPointType(UINT64, UINT64);
   EntryPointType* entry_point = (EntryPointType*)entry_addr;
   entry_point(gop->Mode->FrameBufferBase, gop->Mode->FrameBufferSize);
@@ -296,7 +297,7 @@ C++におけるreinterpret_castを使ってキャストしている。
 正常に動作しない場合には動き続けないようにプログラムを作っておかなければなりません。  
 (別にOSに限った話ではないけども…)  
 ここではEFI_STATUS型のstatus変数を生成しておき、例えば下記のようにしておく。  
-```
+```c
 void Halt(void) {
   while (1) __asm__("hlt");
 }
