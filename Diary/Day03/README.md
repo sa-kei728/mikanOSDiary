@@ -284,7 +284,13 @@ C++におけるreinterpret_castを使ってキャストしている。
 書籍ではmikanos-buildの環境を指定しているが、自環境に合わせたかったのでfindコマンドで探して指定。  
 結果的には下記をつける必要があった。  
 ```console
--I/usr/include/c++/7 -I/usr/include/x86_64-linux-gnu/ -I/usr/include/x86_64-linux-gnu/c++/7/ 
+-I/usr/include/c++/11 -I/usr/include/x86_64-linux-gnu/ -I/usr/include/x86_64-linux-gnu/c++/11/ 
+```
+
+```console
+clang++ -O2 -Wall -I/usr/include/c++/11 -I/usr/include/x86_64-linux-gnu/ -I/usr/include/x86_64-linux-gnu/c++/11/ \
+-g --target=x86_64-elf -ffreestanding -mno-red-zone \
+-fno-exceptions -fno-rtti -fshort-wchar -std=c++17 -c main.cpp
 ```
 
 また、kernel側のInterfaceを変えていることになるので、bootloader側も引数を渡すように変更。  
@@ -295,7 +301,7 @@ C++におけるreinterpret_castを使ってキャストしている。
 ```
 
 こうして出力されるピクセル更新結果がこれ。  
-ピクセルデータ形式が不明なのでどうなるかは不明だが、この感じだと8bit GrayScaleで出力されているようだ。
+ピクセルデータ形式が不明なのでどうなるかは不明だが、この感じだと8bit GrayScaleで出力されているようだ.
 ![qemu_boot_kernel_frame.png](./qemu_boot_kernel_frame.png)
 
 ## エラー処理
@@ -326,3 +332,57 @@ AllocatePagesでメモリ確保しにいこうとするが、
 失敗した際にはエラーメッセージを出して、Haltで無限ループさせる処理。  
 無限ループはエラーメッセージを残しておきたいため。  
 returnを使うと起動処理を続けようとする場合があるのでエラーが消えてしまう。  
+
+### 20230807追記 lld version依存問題
+最新のUbuntu22.04 LTSを使う環境ではこれでは動作しないことが分かっている.
+day03a以降にQEMUコンソール上でレジスタの値をチェックしてもRIPが進んでいない.
+```console
+(qemu) info registers
+RAX=000000003fb7b3e0 RBX=000000003fb79f3b RCX=000000003fb7b3e0 RDX=000000003fea03f8
+RSI=0000000000000000 RDI=000000000080201a RBP=000000003fea87e0 RSP=000000003fea83c0
+R8 =0000000000000001 R9 =0000000000000000 R10=0000000000000000 R11=0000000000000000
+R12=000000003f308198 R13=0000000000000210 R14=000000003fb68234 R15=0000000000000006
+RIP=000000003fb73016 RFL=00000046 [---Z-P-] CPL=0 II=0 A20=1 SMM=0 HLT=0
+```
+https://github.com/uchan-nos/os-from-zero/issues/134
+
+原因はlld-10以降にはELFのLOADセクションが4KiBアライメントされなくなったことが原因らしいとのこと.
+lld-7を使えば直せるのだが, day04dのELFローダを実装すれば解消するらしい.
+
+#### より詳しく調べる
+kernel.elfをreadelfコマンドでチェックすると, 以下の情報が表示され, EntryPointが0x1011b0にあることが分かる.
+```console
+ELF Header:
+...
+  Entry point address:               0x1011b0
+...
+
+Program Headers:
+  Type           Offset             VirtAddr           PhysAddr
+                 FileSiz            MemSiz              Flags  Align
+  PHDR           0x0000000000000040 0x0000000000100040 0x0000000000100040
+                 0x00000000000000e0 0x00000000000000e0  R      0x8
+  LOAD           0x0000000000000000 0x0000000000100000 0x0000000000100000
+                 0x00000000000001b0 0x00000000000001b0  R      0x1000
+  LOAD           0x00000000000001b0 0x00000000001011b0 0x00000000001011b0
+                 0x0000000000000163 0x0000000000000163  R E    0x1000
+  GNU_STACK      0x0000000000000000 0x0000000000000000 0x0000000000000000
+                 0x0000000000000000 0x0000000000000000  RW     0x0
+...
+Symbol table '.symtab' contains 3 entries:
+   Num:    Value          Size Type    Bind   Vis      Ndx Name
+     0: 0000000000000000     0 NOTYPE  LOCAL  DEFAULT  UND 
+     1: 0000000000000000     0 FILE    LOCAL  DEFAULT  ABS main.cpp
+     2: 00000000001011b0   355 FUNC    GLOBAL DEFAULT    2 KernelMain
+```
+
+ブートローダのEntryAddrは+24オフセットした箇所から取り出すため, ELF HeaderのEntryPointが書かれた場所から取得は行っている.
+https://refspecs.linuxfoundation.org/elf/gabi4+/ch4.eheader.html
+```c
+  UINT64 entry_addr = *(UINT64*)(kernel_base_addr + 24);
+```
+
+一方で, Issueを作成した方のコメント通り, ファイル内のLOAD領域に記載されているオフセットが4KiBされなくなった.(ロードした後は4KiBされるのであろう.)
+パディング付与することになるので, その分だけelfバイナリサイズが膨れ上がることを避けたのだろうと予想.
+なお, lld14とあるが, 実際にはこの問題はlld10から起きるはず.
+> lld14では、ファイル上の余分なパディングが消えて一つ目のLOAD領域の直後にエントリーポイントのLOAD領域が保存されています。なので、(0x00100000 + 24)に記載されているアドレスに処理を移しても、ファイル上のオフセットが一致していないため誤作動し、何かしらの例外を引き当てているように思えます。
