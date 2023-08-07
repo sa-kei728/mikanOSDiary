@@ -2,7 +2,7 @@
 
 ## QEMUモニタ
 -monitor stdioをつけることでQEMU起動時にターミナルでQEMUモニタが利用可能。
-```
+```console
 qemu-system-x86_64 \
     -drive if=pflash,file=OVMF_CODE.fd \
     -drive if=pflash,file=OVMF_VARS.fd \
@@ -11,7 +11,7 @@ qemu-system-x86_64 \
 ```
 
 info registersを実行するとCPUのレジスタ情報が確認できる。
-```
+```console
 (qemu) info registers
 RAX=0000000000000000 RBX=0000000000000001 RCX=0000000007b7b1c0 RDX=0000000000000002
 RSI=0000000000000400 RDI=0000000007ea9270 RBP=000000000000002c RSP=0000000007ea88a0
@@ -47,15 +47,15 @@ XMM12=00000000000000000000000000000000 XMM13=00000000000000000000000000000000
 XMM14=00000000000000000000000000000000 XMM15=00000000000000000000000000000000
 ```
 また、下記コマンドでメモリ領域の値表示も可能。  
-```
+```console
 x /fmt addr  
 (/fmtには/[個数][フォーマット][サイズ]が指定できる。)
 ```
-```
+```console
 (qemu) x /4xb 0x06694416
 0000000006694416: 0xeb 0xfe 0x55 0x41
 ```
-```
+```console
 (qemu) x /2i 0x06694416
 0x0000000006694416:  jmp    0x6694416
 0x0000000006694418:  push   %rbp
@@ -67,13 +67,13 @@ x /fmt addr
 
 なお、下記は同じアドレスにjmpし続けるので無限ループしていることになる。  
 while(1)と同義ですね。  
-```
+```console
 0x0000000006694416:  jmp    0x6694416
 ```
 
 ## kernel作成
 hlt命令で省電力状態にするKernelMain関数を作成。
-```
+```cpp
 extern "C" void KernelMain() {
   while (1) __asm__("hlt");
 }
@@ -81,7 +81,7 @@ extern "C" void KernelMain() {
 なお、マングリングすることでC言語形式のシンボルになる。  
 
 コンパイルは下記によって実施。  
-```
+```console
 clang++ -O2 -Wall -g --target=x86_64-elf -ffreestanding -mno-red-zone \
 -fno-exceptions -fno-rtti -std=c++17 -c main.cpp
 ```
@@ -115,7 +115,7 @@ OS開発プログラムでは基本的に無効化が推奨。
 
 このKernelMainをもつkernel.elfをBootLoaderから呼び出す必要がある。  
 この書籍ではKernel.elfをドライブ上に格納し、UEFIからKernelを呼び出すように実施。    
-```
+```c
   // ルートディレクトリを開く
   EFI_FILE_PROTOCOL* kernel_file;
   root_dir->Open(
@@ -160,7 +160,7 @@ EFI_FILE_INFO構造体については下記表にまとめる。
 sizeof(CHAR16) * 12を足しているのはこのため。  
 
 また、Kernel起動前にUEFIのBoot Serviceを止める必要があるので、下記コードで停止させる。  
-```
+```c
   // 最新のメモリマップから取得できるマップキーを使ってBootServiceを終了させる。
   // キーが合わない場合は再取得した後に再度ExitBootServiceを呼び出す。
   EFI_STATUS status;

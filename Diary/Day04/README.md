@@ -2,7 +2,7 @@
 
 ## makeについて
 基本知識が殆どだがおさらいがてらまとめる。  
-```
+```make
 TARGET = kernel.elf
 OBJS = main.o
 
@@ -13,11 +13,11 @@ LDFLAGS  += --entry KernelMain -z norelro --image-base 0x100000 --static
 上記はビルドに必要な変数をまとめたもの。  
 コンパイル、リンカオプションの意味は[Day03](../Day03/README.md)を参照  
 なお、本環境は特にIncludePathをclang向けに設定できてないので、下記の設定が必要。
-```
+```make
 CXXFLAGS += -I/usr/include/c++/7 -I/usr/include/x86_64-linux-gnu/ -I/usr/include/x86_64-linux-gnu/c++/7/
 ```
 
-```
+```make
 .PHONY: all
 all: $(TARGET)
 
@@ -33,7 +33,7 @@ kernel.elf: $(OBJS) Makefile
 ```
 
 これはルールと呼ばれるもので、下記のような構成になっている。  
-```
+```txt
 ターゲット: 必須項目
     レシピ
 ```
@@ -42,7 +42,7 @@ kernel.elf: $(OBJS) Makefile
 ※なお、実際にall, cleanというファイル名があるときには必須設定になる。
 
 今回の場合、make allを実行すると下記のフローで実行される。  
-```
+```make
 all: $(TARGET)=kernel.elf
     kernel.elf: $(OBJS)=main.o Makefile
         %.o=main.o: %.cpp=main.cpp Makefile
@@ -64,7 +64,7 @@ PDFで見づらいので、RustのRedoxOSで使われている[UEFIの仕様](ht
 |PixelBitMask|固有のBitMask設定によって色表現を行う。基本使わない。|
 |PixelBltOnly|ピクセル単位で描画せず、メモリ上の絵をコピーすることで描画。基本使わない。|
 
-```
+```c
   struct FrameBufferConfig config = {
     (UINT8*)gop->Mode->FrameBufferBase,
     gop->Mode->Info->PixelsPerScanLine,
@@ -90,7 +90,7 @@ PDFで見づらいので、RustのRedoxOSで使われている[UEFIの仕様](ht
 ```
 UEFI側にGOPから情報取得して、EntryPointに渡すようにBootLoaderを変更。
 
-```
+```c
 extern "C" void KernelMain(const FrameBufferConfig& frame_buffer_config) {
   for (int x = 0; x < frame_buffer_config.horizontal_resolution; ++x) {
     for (int y = 0; y < frame_buffer_config.vertical_resolution; ++y) {
@@ -108,7 +108,7 @@ extern "C" void KernelMain(const FrameBufferConfig& frame_buffer_config) {
 Kernel側では受け取ったフレームバッファ情報を基にピクセル描画を行う。  
 まずは全体を白埋めした後、(100, 100)~(300, 200)の区画を緑で埋める。
 
-```
+```c
 struct PixelColor {
   uint8_t r, g, b;
 };

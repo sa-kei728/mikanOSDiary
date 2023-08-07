@@ -14,7 +14,7 @@ EDKIIに最低限必要なファイルが3種類あり、
 
 EDKIIのライブラリを使ったMainコードは下記。  
 エントリポイントなどはLoader.infでUefiMainを指すようになっているだけなので、名前が一致すれば名称は何でも良さそうだ。
-```
+```c
 #include  <Uefi.h>
 #include  <Library/UefiLib.h>
 
@@ -40,7 +40,7 @@ Day01でのスクリプトでBOOT Imageを作成してQEMUで起動。
 ## メモリマップ取得
 
 メモリマップ取得のコード
-```
+```c
 struct MemoryMap {
   UINTN buffer_size;
   VOID* buffer;
@@ -87,7 +87,7 @@ gBS->GetMemorySizeの実際のFunction仕様は[こちら](https://uefi.org/site
 |Attribute|UINT64|メモリ領域が使える用途を示すビット集合|
 
 メモリマップをファイルに保存する処理をメイン関数に新たに加えている
-```
+```c
   // メモリマップバッファを作成してメモリマップを取得
   CHAR8 memmap_buf[4096 * 4];
   struct MemoryMap memmap = {sizeof(memmap_buf), memmap_buf, 0, 0, 0, 0};
@@ -109,7 +109,7 @@ gBS->GetMemorySizeの実際のFunction仕様は[こちら](https://uefi.org/site
 ```
 
 SaveMemoryMap関数は下記内容になっています。
-```
+```c
 EFI_STATUS SaveMemoryMap(struct MemoryMap* map, EFI_FILE_PROTOCOL* file) {
   CHAR8 buf[256];
   UINTN len;
@@ -150,7 +150,7 @@ EFI_STATUS SaveMemoryMap(struct MemoryMap* map, EFI_FILE_PROTOCOL* file) {
 ![qemu_boot_day2b](qemu_boot_day2b.png)
 
 またmemmapというファイルが作成されており、下記出力が出ているのを確認できた。  
-```
+```console
 Index, Type, Type(name), PhysicalStart, NumberOfPages, Attribute
 0, 3, EfiBootServicesCode, 00000000, 1, F
 1, 7, EfiConventionalMemory, 00001000, 9F, F
