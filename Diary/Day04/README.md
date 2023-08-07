@@ -7,14 +7,14 @@ TARGET = kernel.elf
 OBJS = main.o
 
 CXXFLAGS += -O2 -Wall -g --target=x86_64-elf -ffreestanding -mno-red-zone \
-            -fno-exceptions -fno-rtti -std=c++17
+            -fno-exceptions -fno-rtti -fshort-wchar -std=c++17
 LDFLAGS  += --entry KernelMain -z norelro --image-base 0x100000 --static
 ```
 上記はビルドに必要な変数をまとめたもの。  
 コンパイル、リンカオプションの意味は[Day03](../Day03/README.md)を参照  
 なお、本環境は特にIncludePathをclang向けに設定できてないので、下記の設定が必要。
 ```make
-CXXFLAGS += -I/usr/include/c++/7 -I/usr/include/x86_64-linux-gnu/ -I/usr/include/x86_64-linux-gnu/c++/7/
+CXXFLAGS += -I/usr/include/c++/11 -I/usr/include/x86_64-linux-gnu/ -I/usr/include/x86_64-linux-gnu/c++/11/
 ```
 
 ```make
@@ -142,3 +142,102 @@ RGB or BGRの情報を書き出す。
 BootLoaderとKernelを作成し、QEMU用のディスクを作って起動。  
 ![green_square](./green_square.png)  
 
+#### 20230807 以下day04dはlld-7を使わない場合, day03を動かすために先に実装が必要
+
+kernelの読み込み処理は現状BaseAddrを決め打ち, サイズはelfファイルを元に設定しているが, 
+この部分は本来の挙動には合わない. 
+* elfファイル内に記載の.data, .bssセクションの情報はファイルサイズに反映されない.
+* elfファイルをlld-10以降でリンクすると, 4KiBアラインされない形でファイル化される. 
+  一方メモリ上では4KiBされている必要があるため, 仮想メモリ呼び出し周りで[ページフォルトが起きる](https://github.com/uchan-nos/mikanos/issues/4).
+```c
+  EFI_PHYSICAL_ADDRESS kernel_base_addr = 0x100000;
+  gBS->AllocatePages(
+      AllocateAddress, EfiLoaderData,
+      (kernel_file_size + 0xfff) / 0x1000, &kernel_base_addr);
+  kernel_file->Read(kernel_file, &kernel_file_size, (VOID*)kernel_base_addr);
+  Print(L"Kernel: 0x%0lx (%lu bytes)\n", kernel_base_addr, kernel_file_size);
+```
+
+そのため, 一時領域にまずはkernelファイルをロード. AllocatePoolはByte単位で一時領域にメモリを確保するために利用.
+kernel_bufferには確保メモリ領域の先頭アドレスが格納される.
+```c
+  EFI_FILE_INFO* file_info = (EFI_FILE_INFO*)file_info_buffer;
+  UINTN kernel_file_size = file_info->FileSize;
+
+  VOID* kernel_buffer;
+  status = gBS->AllocatePool(EfiLoaderData, kernel_file_size, &kernel_buffer);
+  if (EFI_ERROR(status)) {
+    Print(L"failed to allocate pool: %r\n", status);
+    Halt();
+  }
+  status = kernel_file->Read(kernel_file, &kernel_file_size, kernel_buffer);
+  if (EFI_ERROR(status)) {
+    Print(L"error: %r", status);
+    Halt();
+  }
+```
+
+続いて, メモリ範囲, ページ数を計算したうえで, AllocatePagesによってメモリ確保を行う.
+ehdrはelf headerを示しており, CalcLoadAddressRangeによってkernel_first_addr, kernel_last_addrを導出.
+```c
+  Elf64_Ehdr* kernel_ehdr = (Elf64_Ehdr*)kernel_buffer;
+  UINT64 kernel_first_addr, kernel_last_addr;
+  CalcLoadAddressRange(kernel_ehdr, &kernel_first_addr, &kernel_last_addr);
+
+  UINTN num_pages = (kernel_last_addr - kernel_first_addr + 0xfff) / 0x1000;  // -> day03d完了直後では2(0x100000 - 0x102000)のはず
+  status = gBS->AllocatePages(AllocateAddress, EfiLoaderData,
+                              num_pages, &kernel_first_addr);
+  if (EFI_ERROR(status)) {
+    Print(L"failed to allocate pages: %r\n", status);
+    Halt();
+  }
+```
+
+CalcLoadAddressRangeは以下の処理が実装されており, プログラムヘッダまで移動した後, 
+各LOADセグメントの情報を仮想アドレス, メモリサイズ情報を使って逐次的に調べてメモリ範囲を設定.
+```c
+void CalcLoadAddressRange(Elf64_Ehdr* ehdr, UINT64* first, UINT64* last) {
+  Elf64_Phdr* phdr = (Elf64_Phdr*)((UINT64)ehdr + ehdr->e_phoff);
+  *first = MAX_UINT64;
+  *last = 0;
+  for (Elf64_Half i = 0; i < ehdr->e_phnum; ++i) {
+    if (phdr[i].p_type != PT_LOAD) continue;
+    *first = MIN(*first, phdr[i].p_vaddr);                  // -> day03d完了直後では0x100000のはず
+    *last = MAX(*last, phdr[i].p_vaddr + phdr[i].p_memsz);  // -> day03d完了直後では0x101313のはず
+  }
+}
+```
+
+その後, 最終敵にkernel.elfを展開する場所に対してLOADセグメントをコピーして, 一時領域を開放する.
+```c
+  CopyLoadSegments(kernel_ehdr);
+  Print(L"Kernel: 0x%0lx - 0x%0lx\n", kernel_first_addr, kernel_last_addr);
+
+  status = gBS->FreePool(kernel_buffer);
+  if (EFI_ERROR(status)) {
+    Print(L"failed to free pool: %r\n", status);
+    Halt();
+  }
+```
+
+CopyLoadSegmentsは以下のように実装されており, プログラムヘッダまで移動し, 
+LOADセグメントから情報を取り出して, 新しく確保した領域へコピーする.
+データが入らない領域は0埋めしておく.
+
+day03d完了後の場合, 
+* LOADセグメント1に対しては, 0x100000をスタート, 0x0をオフセットとし, 0x1b0ファイルサイズを確保.
+* LOADセグメント2に対しては, 0x1011b0をスタート, 0x1b0をオフセットとし, 0x163ファイルサイズを確保.
+```c
+void CopyLoadSegments(Elf64_Ehdr* ehdr) {
+  Elf64_Phdr* phdr = (Elf64_Phdr*)((UINT64)ehdr + ehdr->e_phoff);
+  for (Elf64_Half i = 0; i < ehdr->e_phnum; ++i) {
+    if (phdr[i].p_type != PT_LOAD) continue;
+
+    UINT64 segm_in_file = (UINT64)ehdr + phdr[i].p_offset;
+    CopyMem((VOID*)phdr[i].p_vaddr, (VOID*)segm_in_file, phdr[i].p_filesz);
+
+    UINTN remain_bytes = phdr[i].p_memsz - phdr[i].p_filesz;
+    SetMem((VOID*)(phdr[i].p_vaddr + phdr[i].p_filesz), remain_bytes, 0);
+  }
+}
+```
