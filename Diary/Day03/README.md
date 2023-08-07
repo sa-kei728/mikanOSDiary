@@ -106,6 +106,12 @@ OS開発プログラムでは基本的に無効化が推奨。
 - RTTI(RunTimeTypeIdentification)はdynamic castに必要。C++にて実行時に派生クラスにしたい場合などに利用。  
 当然コストが発生するので、使用しないプログラムならば使わないほうが良い。  
 
+リンクは下記によって実施。  
+```console
+ld.lld --entry KernelMain -z norelro --image-base 0x100000 --static \
+-o kernel.elf main.o
+```
+
 |リンカオプション|意味|
 |---|---|
 |--entry KernelMain|エントリポイントをKernelMain()に設定|
